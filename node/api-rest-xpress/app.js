@@ -1,9 +1,27 @@
 // app.js
 const express = require('express');
 const app = express();
+const mysql = require('mysql2');
 const port = 3000;
 
 app.use(express.json()); // Middleware para manejar JSON
+
+// Configurar conexión con XAMPP
+const db = mysql.createConnection({
+    host: 'localhost', // XAMPP usa localhost
+    user: 'root', // Usuario predeterminado de XAMPP
+    password: '', // Contraseña predeterminada de XAMPP (normalmente está vacía)
+    database: 'minisuper',
+});
+
+// Conectar a la base de datos
+db.connect((err) => {
+    if (err) {
+        console.error('Error conectando a la base de datos:', err);
+    } else {
+        console.log('Conexión exitosa a la base de datos');
+    }
+});
 
 // Ruta principal
 app.get('/', (req, res) => {
@@ -14,7 +32,6 @@ app.get('/', (req, res) => {
 app.post('/aserrin', (req, res) => {
     const { numero, monto } = req.body;
 
-    // Validaciones
     if (![20, 30, 50, 100, 200].includes(monto)) {
         return res.status(400).json({ mensaje: 'Monto no válido. Solo se aceptan $20, $30, $50, $100 y $200.' });
     }
@@ -23,7 +40,6 @@ app.post('/aserrin', (req, res) => {
         return res.status(400).json({ mensaje: 'Número de teléfono no válido. Debe tener 10 dígitos.' });
     }
 
-    // Simular transacción
     const transaccion = {
         numero,
         monto,
@@ -32,12 +48,28 @@ app.post('/aserrin', (req, res) => {
         respuesta: 'Transacción aprobada',
     };
 
-    console.log('Transacción enviada a Aserrín:', transaccion);
+    const sql = `INSERT INTO transacciones (numero, monto, compania, fecha, respuesta) VALUES (?, ?, ?, ?, ?)`;
+    const valores = [
+        transaccion.numero,
+        transaccion.monto,
+        transaccion.compania,
+        transaccion.fecha,
+        transaccion.respuesta,
+    ];
 
-    // Respuesta
-    res.status(201).json({
-        mensaje: 'Recarga enviada a la compañía Aserrín exitosamente',
-        transaccion,
+    db.query(sql, valores, (err, resultado) => {
+        if (err) {
+            console.error('Error al guardar la transacción:', err);
+            return res.status(500).json({ mensaje: 'Error al guardar la transacción en la base de datos' });
+        }
+
+        res.status(201).json({
+            mensaje: 'Recarga enviada a la compañía Aserrín exitosamente',
+            transaccion: {
+                id: resultado.insertId,
+                ...transaccion,
+            },
+        });
     });
 });
 
