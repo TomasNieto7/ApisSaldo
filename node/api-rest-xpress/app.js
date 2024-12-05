@@ -1,37 +1,77 @@
-// app.js
 const express = require('express');
-const app = express();
 const mysql = require('mysql2');
+const app = express();
 const port = 3000;
 
 app.use(express.json()); // Middleware para manejar JSON
 
-// Configurar conexión con XAMPP
-const db = mysql.createConnection({
-    host: 'localhost', // XAMPP usa localhost
-    user: 'root', // Usuario predeterminado de XAMPP
-    password: '', // Contraseña predeterminada de XAMPP (normalmente está vacía)
+// Conexión a la base de datos principal para MiniSuper
+const dbMiniSuper = mysql.createConnection({
+    host: 'localhost',
+    user: 'root',
+    password: '',
     database: 'minisuper',
 });
 
-// Conectar a la base de datos
-db.connect((err) => {
+dbMiniSuper.connect((err) => {
     if (err) {
-        console.error('Error conectando a la base de datos:', err);
+        console.error('Error al conectar con la base de datos MiniSuper:', err);
     } else {
-        console.log('Conexión exitosa a la base de datos');
+        console.log('Conexión exitosa a la base de datos MiniSuper');
+    }
+});
+
+// Conexión a la base de datos de la compañía telefónica "Aserrín"
+const dbAserrin = mysql.createConnection({
+    host: 'localhost',
+    user: 'root',
+    password: '',
+    database: 'compania_telefonica',
+});
+
+dbAserrin.connect((err) => {
+    if (err) {
+        console.error('Error al conectar con la base de datos Aserrín:', err);
+    } else {
+        console.log('Conexión exitosa a la base de datos Aserrín');
     }
 });
 
 // Ruta principal
 app.get('/', (req, res) => {
-    res.send('Bienvenido a la API de recargas de MiniSuper');
+    res.send('Bienvenido a la API de MiniSuper y Aserrín');
 });
 
-// Ruta para la compañía "Aserrín"
+// Ruta para transacciones generales (MiniSuper)
+app.post('/transaccion', (req, res) => {
+    const { numero, monto, compania } = req.body;
+
+    // Validaciones básicas
+    if (![20, 30, 50, 100, 200].includes(monto)) {
+        return res.status(400).json({ mensaje: 'Monto no válido' });
+    }
+
+    if (!numero || !compania) {
+        return res.status(400).json({ mensaje: 'Datos incompletos' });
+    }
+
+    // Simulación de transacción en la base de datos de MiniSuper
+    const sql = `INSERT INTO transacciones (numero, monto, compania, fecha) VALUES (?, ?, ?, NOW())`;
+    dbMiniSuper.query(sql, [numero, monto, compania], (err) => {
+        if (err) {
+            console.error('Error al guardar transacción en MiniSuper:', err);
+            return res.status(500).json({ mensaje: 'Error al guardar la transacción' });
+        }
+
+        res.status(201).json({ mensaje: 'Transacción registrada exitosamente' });
+    });
+});
+
+// Ruta específica para la compañía Aserrín
 app.post('/aserrin', (req, res) => {
     const { numero, monto } = req.body;
 
+    // Validaciones básicas
     if (![20, 30, 50, 100, 200].includes(monto)) {
         return res.status(400).json({ mensaje: 'Monto no válido. Solo se aceptan $20, $30, $50, $100 y $200.' });
     }
@@ -40,38 +80,37 @@ app.post('/aserrin', (req, res) => {
         return res.status(400).json({ mensaje: 'Número de teléfono no válido. Debe tener 10 dígitos.' });
     }
 
-    const transaccion = {
-        numero,
-        monto,
-        compania: 'Aserrín',
-        fecha: new Date(),
-        respuesta: 'Transacción aprobada',
-    };
-
-    const sql = `INSERT INTO transacciones (numero, monto, compania, fecha, respuesta) VALUES (?, ?, ?, ?, ?)`;
-    const valores = [
-        transaccion.numero,
-        transaccion.monto,
-        transaccion.compania,
-        transaccion.fecha,
-        transaccion.respuesta,
-    ];
-
-    db.query(sql, valores, (err, resultado) => {
+    // Verificar si el cliente existe en la base de datos
+    const verificarCliente = `SELECT * FROM clientes WHERE numero = ?`;
+    dbAserrin.query(verificarCliente, [numero], (err, resultados) => {
         if (err) {
-            console.error('Error al guardar la transacción:', err);
-            return res.status(500).json({ mensaje: 'Error al guardar la transacción en la base de datos' });
+            console.error('Error al consultar cliente:', err);
+            return res.status(500).json({ mensaje: 'Error al consultar la base de datos Aserrín' });
         }
 
-        res.status(201).json({
-            mensaje: 'Recarga enviada a la compañía Aserrín exitosamente',
-            transaccion: {
-                id: resultado.insertId,
-                ...transaccion,
-            },
+        if (resultados.length === 0) {
+            // Cliente no encontrado
+            return res.status(404).json({ mensaje: 'El número de teléfono no existe en la base de datos de Aserrín' });
+        }
+
+        // Cliente encontrado, actualizar saldo
+        const updateSaldo = `UPDATE clientes SET saldo = saldo + ? WHERE numero = ?`;
+        dbAserrin.query(updateSaldo, [monto, numero], (err) => {
+            if (err) {
+                console.error('Error al actualizar saldo:', err);
+                return res.status(500).json({ mensaje: 'Error al actualizar saldo en la base de datos Aserrín' });
+            }
+
+            // Respuesta exitosa
+            return res.status(200).json({
+                mensaje: 'Recarga exitosa',
+                cliente: { numero, saldo: `+${monto} (actualizado)` },
+            });
         });
     });
 });
+
+
 
 // Iniciar servidor
 app.listen(port, () => {
