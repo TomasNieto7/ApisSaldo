@@ -53,7 +53,7 @@ class BalanceHTTPRequestHandler(BaseHTTPRequestHandler):
 
                 update_or_create_balance(phone_number, amount)
                 self._set_response()
-                self.wfile.write(json.dumps({"message": "Saldo actualizado correctamente."}).encode())
+                self.wfile.write(json.dumps({"status": 200, "message": "Saldo actualizado correctamente."}).encode())
         except Exception as e:
             self.send_response(500)
             self.send_header('Content-type', 'application/json')
