@@ -4,7 +4,7 @@ import mysql.connector
 from datetime import datetime
 from decimal import Decimal
 
-# Conexión a la base de datos de osoCarpinteroCO
+
 db_carpinteroCO = mysql.connector.connect(
     host="localhost",
     user="root",
@@ -12,7 +12,7 @@ db_carpinteroCO = mysql.connector.connect(
     database="osoCarpinteroCO"
 )
 
-def update_or_create_balance(phone_number, amount):
+def update_balance(phone_number, amount):
     cursor = db_carpinteroCO.cursor()
     try:
         if not db_carpinteroCO.in_transaction:
@@ -20,24 +20,28 @@ def update_or_create_balance(phone_number, amount):
 
         amount_decimal = Decimal(amount)
         query_update_balance = """
-            INSERT INTO phone_balances (phone_number, balance, last_updated)
-            VALUES (%s, %s, %s)
-            ON DUPLICATE KEY UPDATE 
-                balance = balance + VALUES(balance), 
-                last_updated = VALUES(last_updated)
+            UPDATE phone_balances 
+            SET balance = balance + %s, last_updated = %s 
+            WHERE phone_number = %s
         """
-        cursor.execute(query_update_balance, (phone_number, amount_decimal, datetime.now()))
-        db_carpinteroCO.commit()
+        cursor.execute(query_update_balance, (amount_decimal, datetime.now(), phone_number))
+
+        if cursor.rowcount == 0:
+            return False
+        else:
+            db_carpinteroCO.commit()
+            return True
+
     except mysql.connector.Error as e:
-        print(f"Error en update_or_create_balance: {e}")
+        print(f"Error en update_balance: {e}")
         db_carpinteroCO.rollback()
         raise
     finally:
         cursor.close()
 
 class BalanceHTTPRequestHandler(BaseHTTPRequestHandler):
-    def _set_response(self):
-        self.send_response(200)
+    def _set_response(self, status_code=200):
+        self.send_response(status_code)
         self.send_header('Content-type', 'application/json')
         self.end_headers()
 
@@ -51,14 +55,18 @@ class BalanceHTTPRequestHandler(BaseHTTPRequestHandler):
                 phone_number = data.get('phone_number')
                 amount = data.get('amount')
 
-                update_or_create_balance(phone_number, amount)
-                self._set_response()
-                self.wfile.write(json.dumps({"status": 200, "message": "Saldo actualizado correctamente."}).encode())
+                success = update_balance(phone_number, amount)
+
+                if success:
+                    self._set_response()
+                    self.wfile.write(json.dumps({"status": 200, "message": "Saldo actualizado correctamente."}).encode())
+                else:
+                    self._set_response(202)
+                    self.wfile.write(json.dumps({"status": 404, "error": "Número de teléfono no encontrado."}).encode())
+
         except Exception as e:
-            self.send_response(500)
-            self.send_header('Content-type', 'application/json')
-            self.end_headers()
-            self.wfile.write(json.dumps({"error": str(e)}).encode())
+            self._set_response(500)
+            self.wfile.write(json.dumps({"status": 500, "error": str(e)}).encode())
             print(f"Error general: {e}")
 
 def run(server_class=HTTPServer, handler_class=BalanceHTTPRequestHandler, port=8086):
